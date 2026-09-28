@@ -391,6 +391,13 @@ pub(crate) fn win_treat_as_per_window(
 	}
 }
 
+/// Whether a window passes Steam control's focus candidate filter: only game,
+/// Steam UI, and streaming-client windows qualify.
+/// Gamescope: the `steam_controlled` check in `pick_primary_focus_and_override()`.
+pub(crate) fn passes_steam_filter(meta: &WindowMetadata) -> bool {
+	meta.has_game_id() || meta.is_steam() || meta.flags.contains(WindowFlags::STREAMING_CLIENT)
+}
+
 /// Reserved bit marking a non-Steam window key. Gamescope:
 /// `k_ulNonSteamWindowBit`.
 const NON_STEAM_WINDOW_BIT: u64 = 1 << 63;
@@ -525,6 +532,14 @@ mod tests {
 			}
 		}
 		m
+	}
+
+	#[test]
+	fn test_steam_filter_admits_only_steam_identified_windows() {
+		assert!(passes_steam_filter(&make_meta(&[("app_id", "12345")])));
+		assert!(passes_steam_filter(&make_meta(&[("app_id", "769")])));
+		assert!(passes_steam_filter(&make_meta(&[("steam_legacy_big_picture", "true")])));
+		assert!(!passes_steam_filter(&make_meta(&[("app_id", "0")])));
 	}
 
 	#[test]

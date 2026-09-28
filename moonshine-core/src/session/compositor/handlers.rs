@@ -910,6 +910,15 @@ impl MoonshineCompositor {
 		use super::VirtualConnectorStrategy;
 
 		let steam_controlled = self.e_strategy() == VirtualConnectorStrategy::SteamControlled;
+		// Steam's window filtering only makes sense once Steam is part of the
+		// session. Without it (e.g. an emulator launched by a scanner), every
+		// window would be filtered out and nothing could take input focus.
+		let steam_in_session = steam_controlled
+			&& windows.iter().any(|window| {
+				self.window_metadata
+					.get(window)
+					.is_some_and(|meta| meta.has_game_id() || meta.is_steam())
+			});
 		let mut candidates = Vec::new();
 		for window in windows {
 			let Some(meta) = self.window_metadata.get(window) else {
@@ -938,9 +947,7 @@ impl MoonshineCompositor {
 
 			// Under Steam control only game, Steam UI, and streaming-client
 			// windows are focus candidates.
-			if steam_controlled
-				&& !(meta.has_game_id() || meta.is_steam() || meta.flags.contains(WindowFlags::STREAMING_CLIENT))
-			{
+			if steam_in_session && !super::focus::passes_steam_filter(meta) {
 				continue;
 			}
 
