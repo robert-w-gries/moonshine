@@ -47,6 +47,21 @@ pub struct Config {
 	/// `false` to disable.
 	#[serde(default = "default_inhibit_sleep")]
 	pub inhibit_sleep: bool,
+
+	/// Resolve bare program names (e.g. `command = ["firefox"]`) on the host
+	/// that runs the application instead of in Moonshine's own `PATH`.
+	///
+	/// Applications are always executed by the session-bus `systemd --user`.
+	/// When Moonshine runs in a container with the host's session bus
+	/// bind-mounted, that is the *host's* systemd, and the container's `PATH`
+	/// says nothing about what is installed there. With this enabled, bare
+	/// program names are launched through `/usr/bin/env`, which resolves them
+	/// against the host unit's `PATH`. Absolute paths are unaffected.
+	///
+	/// Trade-off: a misspelled program name is no longer rejected before
+	/// launch; the unit fails on the host instead.
+	#[serde(default)]
+	pub resolve_commands_on_host: bool,
 }
 
 fn default_inhibit_sleep() -> bool {
@@ -135,6 +150,7 @@ impl Default for Config {
 			})],
 			compositor: CompositorConfig::default(),
 			inhibit_sleep: true,
+			resolve_commands_on_host: false,
 		}
 	}
 }

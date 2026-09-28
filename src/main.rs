@@ -15,6 +15,7 @@ use moonshine_core::clients::ClientManager;
 use moonshine_core::config::Config;
 use moonshine_core::discovery::MdnsDiscovery;
 use moonshine_core::rtsp::RtspServer;
+use moonshine_core::session::application::resolve_commands_on_host;
 use moonshine_core::session::manager::SessionManager;
 use moonshine_core::webserver::Webserver;
 
@@ -72,6 +73,11 @@ async fn main() -> Result<(), ()> {
 	tracing::debug!("Adding scanned applications:\n{:#?}", scanned_applications);
 	config.applications.extend(scanned_applications);
 	app_scanner::resolve_missing_boxart(&mut config.applications);
+
+	if config.resolve_commands_on_host {
+		tracing::debug!("Resolving bare program names on the host via /usr/bin/env.");
+		config.applications.iter_mut().for_each(resolve_commands_on_host);
+	}
 
 	tracing::debug!("Waiting for D-Bus session bus...");
 	wait_for_dbus().await?;

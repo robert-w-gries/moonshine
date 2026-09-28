@@ -8,8 +8,12 @@
 # Then:
 #   docker compose -f docker-compose.amd.yml up
 #
-# Requires in .env: HOST_UID=$(id -u), HOST_GID=$(id -g),
+# Requires in .env: HOST_UID=$(id -u), HOST_GID=$(id -g), HOST_HOME=$HOME,
 #                   RENDER_GID=$(getent group render | cut -d: -f3).
+#
+# Application scanners: see the launcher mounts under `volumes:` below. Put
+# machine-specific mounts (e.g. extra Steam libraries) in an override file:
+#   docker compose -f docker-compose.<gpu>.yml -f docker-compose.local.yml up
 
 name: moonshine-server
 
@@ -30,27 +34,61 @@ services:
       - /dev/uhid:/dev/uhid      # gamepad emulation (needs host udev rules)
     group_add:
       - "${RENDER_GID:?set RENDER_GID in .env (getent group render | cut -d: -f3)}"
+    # The server runs with the host user's home path as $HOME, so every path
+    # launcher data refers to (Steam's libraryfolders.vdf, Lutris' database,
+    # Heroic's caches, box art) resolves to the same location as on the host.
+    # The home itself is an ephemeral tmpfs; host data is bind-mounted into it.
+    tmpfs:
+      - ${HOST_HOME:?set HOST_HOME in .env ($$HOME)}:uid=${HOST_UID},gid=${HOST_GID},mode=0755
     cap_add:
       # Docker's default seccomp profile gates kcmp(2) behind CAP_SYS_PTRACE;
       # moonshine needs kcmp for DMA-BUF import cache validation (healthcheck FAIL otherwise).
       - SYS_PTRACE
     environment:
       RUST_BACKTRACE: 1
+      HOME: ${HOST_HOME}
       XDG_RUNTIME_DIR: /run/user/${HOST_UID}
       DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${HOST_UID}/bus
       MOONSHINE_LOG: ${MOONSHINE_LOG:-moonshine=info}
     volumes:
       - target:/home/dev/target:ro
-      - ./dev-config:/home/dev/.config/moonshine
+      - ./dev-config:${HOST_HOME}/.config/moonshine
+      # Persistent state (paired clients). Without it pairings are lost
+      # whenever the container is recreated.
+      - ./dev-state:${HOST_HOME}/.local/share/moonshine
       # Host user session: D-Bus (systemd --user transient units), and the
       # Wayland + PulseAudio sockets moonshine creates must be visible to the
       # games it launches on the host (audio/mod.rs: $XDG_RUNTIME_DIR/moonshine/pulse/native).
       - /run/user/${HOST_UID}:/run/user/${HOST_UID}
       # System bus for logind sleep-inhibition (optional; warning-only if absent).
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+
+      # --- Application scanners (optional) ---
+      # Scanners read the container's filesystem, so mount the launcher data
+      # read-only at the SAME path as on the host. Only enable paths that
+      # exist: Docker creates missing host paths as root-owned directories.
+      # Launcher commands still run on the host; set
+      # `resolve_commands_on_host = true` in config.toml for bare program names.
+      #
+      # Steam: the main directory, plus every extra library listed in
+      # ~/.local/share/Steam/steamapps/libraryfolders.vdf.
+      #- ${HOST_HOME}/.local/share/Steam:${HOST_HOME}/.local/share/Steam:ro
+      #- /mnt/games/SteamLibrary:/mnt/games/SteamLibrary:ro
+      # Lutris:
+      #- ${HOST_HOME}/.local/share/lutris:${HOST_HOME}/.local/share/lutris:ro
+      # Heroic (native, or Flatpak):
+      #- ${HOST_HOME}/.config/heroic:${HOST_HOME}/.config/heroic:ro
+      #- ${HOST_HOME}/.var/app/com.heroicgameslauncher.hgl/config/heroic:${HOST_HOME}/.var/app/com.heroicgameslauncher.hgl/config/heroic:ro
+      # Desktop entries, and icons for box art (also used for apps without box art):
+      #- ${HOST_HOME}/.local/share/applications:${HOST_HOME}/.local/share/applications:ro
+      #- ${HOST_HOME}/.local/share/icons:${HOST_HOME}/.local/share/icons:ro
+      #- /usr/share/applications:/usr/share/applications:ro
+      #- /usr/share/icons:/usr/share/icons:ro
+      #- /usr/share/pixmaps:/usr/share/pixmaps:ro
     command: /home/dev/target/release/moonshine
 
 volumes:
-  # Build output from docker-compose.dev.yml (shared by explicit name).
+  # Build output from docker-compose.dev.yml (created by its first build).
   target:
     name: moonshine-dev_target
+    external: true

@@ -6,3 +6,6 @@ __pycache__/
 .env
 /dev-config/*
 !/dev-config/.gitkeep
+/dev-state/*
+!/dev-state/.gitkeep
+/docker-compose.local.yml

@@ -192,12 +192,16 @@ Install Steam and any games on the host, and use absolute paths in `command` ent
 cat > .env <<EOF
 HOST_UID=$(id -u)
 HOST_GID=$(id -g)
+HOST_HOME=$HOME
 RENDER_GID=$(getent group render | cut -d: -f3)
 EOF
 ```
 
-The server uses `dev-config/` as its configuration directory (`~/.config/moonshine` inside the container).
-A `config.toml`, certificate and key are created there on first run.
+The server container runs with your host home path as `$HOME`, backed by an ephemeral tmpfs.
+Two directories are bind-mounted into it and persist:
+
+- `dev-config/` → `~/.config/moonshine`: `config.toml`, certificate and key (created on first run).
+- `dev-state/` → `~/.local/share/moonshine`: paired clients. Without it, pairings are lost whenever the container is recreated.
 
 **Build**:
 
@@ -219,9 +223,35 @@ The container uses host networking, so the usual ports and `http://localhost:479
 To build again after changing the source, re-run the `cargo build` command and restart the server container.
 The dev container can also run the other CI checks, e.g. `cargo test --workspace` or `cargo clippy --workspace`.
 
+#### Application scanners in Docker
+
+[Application scanners](#application-scanners) run inside the container, so they only see launcher data that is bind-mounted in.
+Mount it read-only at the **same path as on the host**: launcher data stores absolute paths (e.g. Steam's `libraryfolders.vdf` lists every library), and box art is read from those paths too.
+The server compose files contain commented-out mounts for Steam, Lutris, Heroic and desktop entries.
+
+Keep machine-specific mounts, such as extra Steam libraries, in a separate override file:
+
+```yaml
+# docker-compose.local.yml
+services:
+  server:
+    volumes:
+      - ${HOST_HOME}/.local/share/Steam:${HOST_HOME}/.local/share/Steam:ro
+      - /mnt/games/SteamLibrary:/mnt/games/SteamLibrary:ro
+```
+
+```sh
+docker compose -f docker-compose.nvidia.yml -f docker-compose.local.yml up
+```
+
+Only mount paths that exist: Docker creates a missing host path as a root-owned directory.
+
+The scanned applications are still launched **on the host**.
+Many scanned commands use bare program names, e.g. `Exec=firefox` in desktop entries or Heroic's `heroic`, which Moonshine would otherwise look up in the container's `PATH`.
+Set [`resolve_commands_on_host = true`](#running-in-a-container) in `config.toml` so they are resolved on the host instead.
+
 **Known limitations**:
 
-- Application scanners read the **container's** filesystem, so a scanner path like `$HOME/.local/share/Steam` won't find host libraries unless you bind-mount them in.
 - The Vulkan WSI layer isn't installed in the image, so `moonshine healthcheck` reports it missing and games render through XWayland.
 
 ## Configuration
@@ -340,6 +370,19 @@ Box art is automatically loaded from Heroic's `images-cache/` directory for any 
 
 The default configuration directory is `~/.config/heroic`, falling back to `~/.var/app/com.heroicgameslauncher.hgl/config/heroic` when only the Flatpak is installed.
 You can override it with the `config_dir` option.
+
+### Running in a container
+
+When Moonshine runs in a container and launches applications through the host's `systemd --user` (see [Docker](#docker)), set:
+
+```toml
+resolve_commands_on_host = true
+```
+
+Commands whose program is a bare name (e.g. `["firefox"]`) are then started as `/usr/bin/env firefox`, so the host resolves them against its own `PATH`.
+Absolute paths are used as-is either way.
+The trade-off is that a misspelled program name is no longer rejected before launch; the application fails on the host instead.
+Defaults to `false`.
 
 ## Tips & Tricks
 

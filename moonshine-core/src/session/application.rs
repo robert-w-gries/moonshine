@@ -744,6 +744,28 @@ fn resolve_program(program: &str) -> Option<PathBuf> {
 	}
 }
 
+/// Program used to resolve bare names on the host, see [`resolve_commands_on_host`].
+const HOST_ENV_PROGRAM: &str = "/usr/bin/env";
+
+/// Rewrite commands whose program is a bare name to run through `/usr/bin/env`,
+/// so the name is resolved against the `PATH` of the systemd unit that
+/// executes it, not Moonshine's own `PATH`.
+///
+/// Used when Moonshine runs in a container but launches applications through
+/// the host's `systemd --user` (see `Config::resolve_commands_on_host`).
+/// Absolute paths are left untouched; they are already passed through as-is.
+pub fn resolve_commands_on_host(application: &mut ApplicationConfig) {
+	let commands = std::iter::once(&mut application.command)
+		.chain(application.pre_command.iter_mut())
+		.chain(application.post_command.iter_mut());
+
+	for command in commands {
+		if command.first().is_some_and(|program| !Path::new(program).is_absolute()) {
+			command.insert(0, HOST_ENV_PROGRAM.to_string());
+		}
+	}
+}
+
 /// Build a list of exec command entries from a list of command configs.
 /// Each entry is (absolute_path, argv, ignore_errors=false).
 fn build_exec_entries(commands: &[Vec<String>]) -> Vec<(String, Vec<String>, bool)> {
@@ -791,7 +813,46 @@ fn build_exec_array(entries: &[(String, Vec<String>, bool)]) -> Result<zvariant:
 
 #[cfg(test)]
 mod tests {
-	use super::{build_exec_entry, split_standard_io};
+	use super::{ApplicationConfig, build_exec_entry, resolve_commands_on_host, split_standard_io};
+
+	#[test]
+	fn test_resolve_commands_on_host_wraps_bare_names_only() {
+		let command = |parts: &[&str]| parts.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+		let mut application = ApplicationConfig {
+			command: command(&["firefox", "--new-window"]),
+			pre_command: vec![
+				command(&["/usr/bin/systemctl", "stop", "foo"]),
+				command(&["notify-send", "hi"]),
+			],
+			post_command: vec![command(&["dbus-run-session", "--", "true"])],
+			..Default::default()
+		};
+
+		resolve_commands_on_host(&mut application);
+
+		assert_eq!(
+			application.command,
+			command(&["/usr/bin/env", "firefox", "--new-window"])
+		);
+		assert_eq!(
+			application.pre_command,
+			vec![
+				command(&["/usr/bin/systemctl", "stop", "foo"]),
+				command(&["/usr/bin/env", "notify-send", "hi"]),
+			]
+		);
+		assert_eq!(
+			application.post_command,
+			vec![command(&["/usr/bin/env", "dbus-run-session", "--", "true"])]
+		);
+
+		// Idempotent: the rewritten commands now start with an absolute path.
+		let before = application.clone();
+		resolve_commands_on_host(&mut application);
+		assert_eq!(application.command, before.command);
+		assert_eq!(application.pre_command, before.pre_command);
+		assert_eq!(application.post_command, before.post_command);
+	}
 
 	#[test]
 	fn test_absolute_program_path_is_used_as_is() {
