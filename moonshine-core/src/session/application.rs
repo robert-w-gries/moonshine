@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_shutdown::ShutdownManager;
@@ -729,6 +729,21 @@ async fn start_transient_service(conn: &Connection, options: &LaunchOptions<'_>)
 	}
 }
 
+/// Resolve a configured program to the path systemd should execute.
+///
+/// Absolute paths are used as-is: the unit is executed by the session-bus
+/// systemd --user, which may be the *host's* systemd when moonshine itself
+/// runs in a container with a bind-mounted session bus. A local existence
+/// check would test the wrong filesystem in that case. Bare program names
+/// are resolved via PATH.
+fn resolve_program(program: &str) -> Option<PathBuf> {
+	if Path::new(program).is_absolute() {
+		Some(PathBuf::from(program))
+	} else {
+		which::which(program).ok()
+	}
+}
+
 /// Build a list of exec command entries from a list of command configs.
 /// Each entry is (absolute_path, argv, ignore_errors=false).
 fn build_exec_entries(commands: &[Vec<String>]) -> Vec<(String, Vec<String>, bool)> {
@@ -736,7 +751,7 @@ fn build_exec_entries(commands: &[Vec<String>]) -> Vec<(String, Vec<String>, boo
 		.iter()
 		.filter_map(|cmd| {
 			let first = cmd.first()?;
-			let abs = which::which(first).ok()?;
+			let abs = resolve_program(first)?;
 			let abs_str = abs.to_str()?.to_string();
 			let argv: Vec<String> = std::iter::once(abs_str.clone())
 				.chain(cmd[1..].iter().cloned())
@@ -747,9 +762,10 @@ fn build_exec_entries(commands: &[Vec<String>]) -> Vec<(String, Vec<String>, boo
 }
 
 /// Build a single exec command entry from a program path and args.
-/// Returns (absolute_path, argv, ignore_errors=false), or None if the program is not found.
+/// Returns (absolute_path, argv, ignore_errors=false), or None if a bare
+/// program name could not be resolved via PATH.
 fn build_exec_entry(program: String, args: Vec<String>) -> Option<(String, Vec<String>, bool)> {
-	let abs = which::which(&program).ok()?;
+	let abs = resolve_program(&program)?;
 	let abs_str = abs.to_str()?.to_string();
 	let argv: Vec<String> = std::iter::once(abs_str.clone()).chain(args.iter().cloned()).collect();
 	Some((abs_str, argv, false))
@@ -775,7 +791,22 @@ fn build_exec_array(entries: &[(String, Vec<String>, bool)]) -> Result<zvariant:
 
 #[cfg(test)]
 mod tests {
-	use super::split_standard_io;
+	use super::{build_exec_entry, split_standard_io};
+
+	#[test]
+	fn test_absolute_program_path_is_used_as_is() {
+		// Must not require local existence: the unit may be executed by the
+		// host's systemd when moonshine runs in a container.
+		let (path, argv, _) = build_exec_entry("/nonexistent/bin/app".to_string(), vec!["--flag".to_string()])
+			.expect("absolute paths must pass through unchecked");
+		assert_eq!(path, "/nonexistent/bin/app");
+		assert_eq!(argv, vec!["/nonexistent/bin/app", "--flag"]);
+	}
+
+	#[test]
+	fn test_unresolvable_program_name_is_rejected() {
+		assert!(build_exec_entry("moonshine-definitely-not-a-real-program".to_string(), vec![]).is_none());
+	}
 
 	#[test]
 	fn test_standard_io_defaults_to_null() {

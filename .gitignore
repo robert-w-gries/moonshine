@@ -3,3 +3,6 @@ __pycache__/
 /result
 /analysis_*
 *.bak
+.env
+/dev-config/*
+!/dev-config/.gitkeep

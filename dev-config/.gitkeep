@@ -1,0 +1,4 @@
+# Keeps this directory in git so `docker compose run server` bind-mounts a
+# user-owned ./dev-config. If the directory is missing, the Docker daemon
+# creates it as root and the container's unprivileged `dev` user cannot write
+# /home/dev/.config/moonshine/config.toml (EACCES, "Permission denied").
