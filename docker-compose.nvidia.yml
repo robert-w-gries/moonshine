@@ -15,7 +15,8 @@
 #   docker compose -f docker-compose.nvidia.yml up
 #
 # Requires in .env: HOST_UID=$(id -u), HOST_GID=$(id -g), HOST_HOME=$HOME,
-#                   RENDER_GID=$(getent group render | cut -d: -f3).
+#                   RENDER_GID=$(getent group render | cut -d: -f3),
+#                   INPUT_GID=$(stat -c %g /dev/uinput).
 #
 # Application scanners: see the launcher mounts under `volumes:` below. Put
 # machine-specific mounts (e.g. extra Steam libraries) in an override file:
@@ -47,6 +48,10 @@ services:
       - /dev/uhid:/dev/uhid      # gamepad emulation (needs host udev rules)
     group_add:
       - "${RENDER_GID:?set RENDER_GID in .env (getent group render | cut -d: -f3)}"
+      # Group owning /dev/uinput and /dev/uhid. Docker does not carry over the
+      # host's per-user ACLs (uaccess), so access is by group. Without it,
+      # creating virtual gamepads fails with "Permission denied".
+      - "${INPUT_GID:?set INPUT_GID in .env (stat -c %g /dev/uinput)}"
     # The server runs with the host user's home path as $HOME, so every path
     # launcher data refers to (Steam's libraryfolders.vdf, Lutris' database,
     # Heroic's caches, box art) resolves to the same location as on the host.

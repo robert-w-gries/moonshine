@@ -194,8 +194,11 @@ HOST_UID=$(id -u)
 HOST_GID=$(id -g)
 HOST_HOME=$HOME
 RENDER_GID=$(getent group render | cut -d: -f3)
+INPUT_GID=$(stat -c %g /dev/uinput)
 EOF
 ```
+
+`INPUT_GID` is the group that owns `/dev/uinput` and `/dev/uhid` (set by the [udev rules](#source)); without it the container cannot create virtual gamepads.
 
 The server container runs with your host home path as `$HOME`, backed by an ephemeral tmpfs.
 Two directories are bind-mounted into it and persist:
