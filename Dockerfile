@@ -5,7 +5,8 @@
 # Mirrors CI (.github/workflows/ci.yaml runs on ubuntu-24.04, pinned as the
 # release-binary glibc baseline), so `cargo test/clippy/fmt/doc` behave the
 # same locally as in CI. Also carries Mesa's Vulkan/EGL userspace so the
-# server itself can run with a passthrough GPU (/dev/dri, AMD/Intel).
+# server itself can run with a passthrough GPU (/dev/dri, AMD/Intel), or with
+# an NVIDIA GPU via the NVIDIA Container Toolkit (driver userspace injected).
 #
 # Normally built via `docker compose build` (which passes UID/GID).
 # Manual:
@@ -68,6 +69,12 @@ RUN set -eux; \
 # container. Smithay binds /tmp/.X11-unix/X<N> when spawning XWayland and
 # aborts with "Could not find a free socket for the XServer" if it is missing.
 RUN install -d -m 1777 /tmp/.X11-unix
+
+# NVIDIA's GBM backend (nvidia-drm_gbm.so) is injected by the NVIDIA Container
+# Toolkit at the *host's* path — /usr/lib/gbm on Arch/Fedora-style hosts —
+# which Ubuntu's libgbm never searches. Without it Mesa falls back to
+# kms_swrast and GBM allocation fails with EACCES. Harmless on AMD/Intel.
+ENV GBM_BACKENDS_PATH=/usr/lib/x86_64-linux-gnu/gbm:/usr/lib/gbm
 
 USER dev
 WORKDIR /home/dev

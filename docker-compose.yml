@@ -22,6 +22,7 @@ x-common: &common
   environment:
     CARGO_TERM_COLOR: always
     RUST_BACKTRACE: 1
+    RENDER_GID: "${RENDER_GID}"
 
 services:
   dev:
@@ -35,12 +36,19 @@ services:
   server:
     <<: *common
     network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     devices:
-      - /dev/dri:/dev/dri        # GPU (AMD/Intel). NVIDIA: see §10.
+      #- /dev/dri:/dev/dri        # GPU (AMD/Intel). NVIDIA: see §10.
       - /dev/uinput:/dev/uinput  # keyboard/mouse injection
       - /dev/uhid:/dev/uhid      # gamepad emulation (needs host udev rules, §3)
     group_add:
-      - "${RENDER_GID:?set RENDER_GID in .env (getent group render)}"
+      - "${RENDER_GID:?set RENDER_GID via `RENDER_GID=$(getent group render | cut -d: -f3) docker compose ...` or in .env}"
     cap_add:
       # Docker's default seccomp profile gates kcmp(2) behind CAP_SYS_PTRACE;
       # moonshine needs kcmp for DMA-BUF import cache validation (healthcheck FAIL otherwise).
@@ -51,6 +59,9 @@ services:
       XDG_RUNTIME_DIR: /run/user/${HOST_UID}
       DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${HOST_UID}/bus
       MOONSHINE_LOG: ${MOONSHINE_LOG:-moonshine=info}
+      # NVIDIA: have the container toolkit inject the graphics/video (EGL,
+      # Vulkan, GBM, encode) userspace, not just compute/utility.
+      NVIDIA_DRIVER_CAPABILITIES: all
     volumes:
       - .:/home/dev/moonshine
       - cargo-registry:/home/dev/.cargo/registry
