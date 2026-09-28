@@ -52,7 +52,7 @@ pub struct DesktopApplicationScannerConfig {
 	pub launch_timeout_secs: u64,
 }
 
-const SUPPORTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "bmp", "ico"];
+pub(super) const SUPPORTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "bmp", "ico"];
 const SKIPPED_EXEC_FIELD_CODES: [char; 10] = ['f', 'F', 'u', 'U', 'd', 'D', 'n', 'N', 'v', 'm'];
 
 pub(crate) fn scan_desktop_applications(
@@ -442,7 +442,7 @@ fn resolve_executable(executable: &str) -> Option<PathBuf> {
 	None
 }
 
-fn expand_path(path: &Path) -> Option<PathBuf> {
+pub(super) fn expand_path(path: &Path) -> Option<PathBuf> {
 	let path = path.to_string_lossy();
 	let path = shellexpand::full(&path).ok()?;
 	Some(PathBuf::from(path.as_ref()))

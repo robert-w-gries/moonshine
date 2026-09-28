@@ -101,6 +101,8 @@ services:
       #- /usr/share/applications:/usr/share/applications:ro
       #- /usr/share/icons:/usr/share/icons:ro
       #- /usr/share/pixmaps:/usr/share/pixmaps:ro
+      # Game files (ROMs, disc images) for the files scanner:
+      #- ${HOST_HOME}/Games:${HOST_HOME}/Games:ro
     command: /home/dev/target/release/moonshine
 
 volumes:

@@ -227,7 +227,7 @@ The dev container can also run the other CI checks, e.g. `cargo test --workspace
 
 [Application scanners](#application-scanners) run inside the container, so they only see launcher data that is bind-mounted in.
 Mount it read-only at the **same path as on the host**: launcher data stores absolute paths (e.g. Steam's `libraryfolders.vdf` lists every library), and box art is read from those paths too.
-The server compose files contain commented-out mounts for Steam, Lutris, Heroic and desktop entries.
+The server compose files contain commented-out mounts for Steam, Lutris, Heroic, desktop entries and game file directories (for the [files scanner](#application-scanners)).
 
 Keep machine-specific mounts, such as extra Steam libraries, in a separate override file:
 
@@ -370,6 +370,28 @@ Box art is automatically loaded from Heroic's `images-cache/` directory for any 
 
 The default configuration directory is `~/.config/heroic`, falling back to `~/.var/app/com.heroicgameslauncher.hgl/config/heroic` when only the Flatpak is installed.
 You can override it with the `config_dir` option.
+
+**Files scanner** — exposes game files such as ROMs or disc images, launched through an emulator of your choice:
+
+```toml
+[[application_scanner]]
+type = "files"
+directories = ["$HOME/Games/PS2"]
+extensions = ["iso"]
+command = ["pcsx2-qt", "-batch", "--", "{path}"]
+
+[[application_scanner]]
+type = "files"
+directories = ["$HOME/Games/GBC"]
+extensions = ["gbc"]
+command = ["mgba-qt", "-f", "{path}"]
+```
+
+Use one scanner block per emulator.
+Extensions are matched case-insensitively, and subdirectories are scanned unless you set `recursive = false`.
+In `command`, `{path}` is the absolute file path, `{file_name}` the file name and `{title}` the application title; each argument is passed as-is, so paths with spaces need no quoting.
+The title is the file name without its extension and without trailing `(...)`/`[...]` tags, so `Pokemon Crystal (USA, Europe) [!].gbc` becomes `Pokemon Crystal`.
+Box art is used when an image with the same name (`png`, `jpg`, `jpeg`, `webp`, `bmp` or `ico`) sits next to the file or in a `boxart/` or `covers/` subdirectory; set `resolve_boxart = false` to disable this.
 
 ### Running in a container
 
