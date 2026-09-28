@@ -1,0 +1,44 @@
+# Development container for moonshine (https://github.com/hgaiser/moonshine).
+#
+# CI-identical build/test toolchain: no GPU, no devices, no host session
+# access. The everyday development loop. Build output lands in the shared
+# `target` volume, which the server compose files mount to run the binary:
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml exec dev cargo build --release --workspace
+#   docker compose -f docker-compose.dev.yml exec dev cargo test --workspace
+#
+# Then run the server with docker-compose.amd.yml or docker-compose.nvidia.yml.
+#
+# Requires in .env: HOST_UID=$(id -u), HOST_GID=$(id -g).
+
+name: moonshine-dev
+
+services:
+  dev:
+    build:
+      context: .
+      args:
+        UID: "${HOST_UID:?set HOST_UID in .env (id -u)}"
+        GID: "${HOST_GID:?set HOST_GID in .env (id -g)}"
+    image: moonshine-dev:local
+    tty: true
+    stdin_open: true
+    environment:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    volumes:
+      - .:/home/dev/moonshine
+      - cargo-registry:/home/dev/.cargo/registry
+      - cargo-git:/home/dev/.cargo/git
+      - target:/home/dev/target
+
+# Explicit names so the server compose files (different project) share the
+# same volumes instead of getting project-prefixed copies.
+volumes:
+  cargo-registry:
+    name: moonshine-dev_cargo-registry
+  cargo-git:
+    name: moonshine-dev_cargo-git
+  target:
+    name: moonshine-dev_target

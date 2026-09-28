@@ -160,6 +160,70 @@ Then run:
 cargo run --release -- /path/to/config.toml
 ```
 
+### Docker
+
+Moonshine can be built and run in containers based on Ubuntu 24.04, the same base CI uses.
+There are three compose files:
+
+| File | Purpose |
+|---|---|
+| `docker-compose.dev.yml` | Build/test toolchain (no GPU or devices). Build output goes to a shared `target` volume. |
+| `docker-compose.amd.yml` | Runs the server on an AMD or Intel GPU (Mesa, `/dev/dri` passthrough). |
+| `docker-compose.nvidia.yml` | Runs the server on an NVIDIA GPU (proprietary driver, via the NVIDIA Container Toolkit). |
+
+Only the server runs in the container.
+Applications are still launched **on the host**, through your user's `systemd --user` instance.
+The container reaches it over the host's session D-Bus, which is bind-mounted from `/run/user/$UID`.
+Install Steam and any games on the host, and use absolute paths in `command` entries (e.g. `/usr/bin/steam`).
+
+**Host setup** (once):
+
+1. Load the input kernel modules and install the udev rules, as described in [Source](#source) (`dist/moonshine-modules.conf`, `dist/60-moonshine.rules`).
+1. Follow steps 1 and 3 of [Enable the service](#enable-the-service) (lingering and the `input` group). Skip the systemd service itself; the container replaces it.
+1. **NVIDIA only**: install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) and configure Docker for it:
+   ```sh
+   sudo nvidia-ctk runtime configure --runtime=docker
+   sudo systemctl restart docker
+   ```
+
+**Configure**: create a `.env` file in the repository root:
+
+```sh
+cat > .env <<EOF
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+RENDER_GID=$(getent group render | cut -d: -f3)
+EOF
+```
+
+The server uses `dev-config/` as its configuration directory (`~/.config/moonshine` inside the container).
+A `config.toml`, certificate and key are created there on first run.
+
+**Build**:
+
+```sh
+docker compose -f docker-compose.dev.yml build
+docker compose -f docker-compose.dev.yml run --rm dev cargo build --release --workspace
+```
+
+**Run** the compose file that matches your GPU:
+
+```sh
+docker compose -f docker-compose.amd.yml up       # AMD / Intel
+docker compose -f docker-compose.nvidia.yml up    # NVIDIA
+```
+
+Then pair with Moonlight as described in [Pairing with a client](#pairing-with-a-client).
+The container uses host networking, so the usual ports and `http://localhost:47989/pin` work unchanged.
+
+To build again after changing the source, re-run the `cargo build` command and restart the server container.
+The dev container can also run the other CI checks, e.g. `cargo test --workspace` or `cargo clippy --workspace`.
+
+**Known limitations**:
+
+- Application scanners read the **container's** filesystem, so a scanner path like `$HOME/.local/share/Steam` won't find host libraries unless you bind-mount them in.
+- The Vulkan WSI layer isn't installed in the image, so `moonshine healthcheck` reports it missing and games render through XWayland.
+
 ## Configuration
 
 A configuration file is created automatically if the path you provide doesn't exist.

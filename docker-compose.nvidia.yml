@@ -1,0 +1,72 @@
+# Moonshine streaming server — NVIDIA GPU (proprietary driver).
+#
+# Runs the server with GPU + input passthrough, host networking, and the host
+# user's D-Bus session (apps are launched on the host via systemd --user).
+#
+# Needs the NVIDIA Container Toolkit on the host, with Docker configured for it
+# (`nvidia-ctk runtime configure --runtime=docker`). The toolkit injects the
+# driver userspace (EGL, Vulkan ICD, GBM backend, NVENC) and the /dev/nvidia*
+# + /dev/dri nodes; the image's GBM_BACKENDS_PATH lets Ubuntu's libgbm find
+# the GBM backend wherever the host distro keeps it.
+#
+# Build the binary first with the dev container:
+#   docker compose -f docker-compose.dev.yml run --rm dev cargo build --release --workspace
+# Then:
+#   docker compose -f docker-compose.nvidia.yml up
+#
+# Requires in .env: HOST_UID=$(id -u), HOST_GID=$(id -g),
+#                   RENDER_GID=$(getent group render | cut -d: -f3).
+
+name: moonshine-server
+
+services:
+  server:
+    build:
+      context: .
+      args:
+        UID: "${HOST_UID:?set HOST_UID in .env (id -u)}"
+        GID: "${HOST_GID:?set HOST_GID in .env (id -g)}"
+    image: moonshine-dev:local
+    tty: true
+    stdin_open: true
+    network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    devices:
+      # No /dev/dri here: the NVIDIA runtime injects the GPU's DRM nodes.
+      - /dev/uinput:/dev/uinput  # keyboard/mouse injection
+      - /dev/uhid:/dev/uhid      # gamepad emulation (needs host udev rules)
+    group_add:
+      - "${RENDER_GID:?set RENDER_GID in .env (getent group render | cut -d: -f3)}"
+    cap_add:
+      # Docker's default seccomp profile gates kcmp(2) behind CAP_SYS_PTRACE;
+      # moonshine needs kcmp for DMA-BUF import cache validation (healthcheck FAIL otherwise).
+      - SYS_PTRACE
+    environment:
+      RUST_BACKTRACE: 1
+      XDG_RUNTIME_DIR: /run/user/${HOST_UID}
+      DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${HOST_UID}/bus
+      MOONSHINE_LOG: ${MOONSHINE_LOG:-moonshine=info}
+      # Have the container toolkit inject the graphics/video (EGL, Vulkan,
+      # GBM, encode) userspace, not just compute/utility.
+      NVIDIA_DRIVER_CAPABILITIES: all
+    volumes:
+      - target:/home/dev/target:ro
+      - ./dev-config:/home/dev/.config/moonshine
+      # Host user session: D-Bus (systemd --user transient units), and the
+      # Wayland + PulseAudio sockets moonshine creates must be visible to the
+      # games it launches on the host (audio/mod.rs: $XDG_RUNTIME_DIR/moonshine/pulse/native).
+      - /run/user/${HOST_UID}:/run/user/${HOST_UID}
+      # System bus for logind sleep-inhibition (optional; warning-only if absent).
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+    command: /home/dev/target/release/moonshine
+
+volumes:
+  # Build output from docker-compose.dev.yml (shared by explicit name).
+  target:
+    name: moonshine-dev_target
