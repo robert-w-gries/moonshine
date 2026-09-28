@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
-use super::desktop::{SUPPORTED_IMAGE_EXTENSIONS, expand_path};
+use super::desktop::SUPPORTED_IMAGE_EXTENSIONS;
 use crate::session::application::ApplicationConfig;
 
 fn default_true() -> bool {
@@ -77,9 +77,15 @@ pub(crate) fn scan_files_applications(config: &FilesApplicationScannerConfig) ->
 	let mut seen_paths = HashSet::new();
 
 	for directory in &config.directories {
-		let Some(directory) = expand_path(directory) else {
-			tracing::warn!("Failed to expand files scanner directory '{}'.", directory.display());
-			continue;
+		let directory = match shellexpand::full(&directory.to_string_lossy()) {
+			Ok(expanded) => PathBuf::from(expanded.as_ref()),
+			Err(e) => {
+				tracing::warn!(
+					"Failed to expand files scanner directory '{}': {e}",
+					directory.display()
+				);
+				continue;
+			},
 		};
 
 		if !directory.exists() {

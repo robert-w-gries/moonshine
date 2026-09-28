@@ -465,6 +465,23 @@ pub(crate) struct MoonshineCompositor {
 /// Client state required by Smithay's compositor.
 pub(crate) struct ClientState {
 	pub compositor_state: CompositorClientState,
+
+	/// PID of the client, read from the socket when it connected.
+	///
+	/// `None` when the credentials could not be read. We read them ourselves because
+	/// `wayland-backend`'s `get_credentials` panics if `SO_PEERCRED` fails.
+	pub pid: Option<u32>,
+}
+
+/// Read the PID of the process on the other end of a client socket.
+pub(crate) fn peer_pid(stream: &impl std::os::fd::AsFd) -> Option<u32> {
+	match rustix::net::sockopt::socket_peercred(stream) {
+		Ok(credentials) => Some(rustix::process::Pid::as_raw(Some(credentials.pid)) as u32),
+		Err(e) => {
+			tracing::warn!("Failed to read Wayland client credentials, the client's app id will be unknown: {e}");
+			None
+		},
+	}
 }
 
 impl ClientData for ClientState {
@@ -562,10 +579,12 @@ impl MoonshineCompositor {
 		let wayland_socket_token = handle
 			.insert_source(socket_source, move |client_stream, _, _state| {
 				tracing::debug!("New Wayland client connected");
+				let pid = peer_pid(&client_stream);
 				if let Err(e) = display_handle_clone.insert_client(
 					client_stream,
 					std::sync::Arc::new(ClientState {
 						compositor_state: CompositorClientState::default(),
+						pid,
 					}),
 				) {
 					tracing::error!("Failed to insert client: {e}");
@@ -2160,4 +2179,24 @@ fn export_dmabuf(
 		color_space: surface_color_space.unwrap_or(FrameColorSpace::Srgb),
 		hdr_metadata,
 	})
+}
+
+#[cfg(test)]
+mod peer_pid_tests {
+	use std::os::unix::net::UnixStream;
+
+	use super::peer_pid;
+
+	#[test]
+	fn reads_pid_of_connected_peer() {
+		let (a, _b) = UnixStream::pair().unwrap();
+		assert_eq!(peer_pid(&a), Some(std::process::id()));
+	}
+
+	#[test]
+	fn returns_none_instead_of_panicking_when_credentials_are_unavailable() {
+		// SO_PEERCRED is not supported on TCP sockets, so this fails the way a broken socket would.
+		let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+		assert_eq!(peer_pid(&listener), None);
+	}
 }

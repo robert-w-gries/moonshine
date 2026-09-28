@@ -44,6 +44,11 @@ use smithay::xwayland::XWaylandClientData;
 use crate::session::compositor::focus::{KeyboardFocusTarget, WindowFlags, WindowMetadata, get_window_priority_key};
 use crate::session::compositor::state::{ClientState, MoonshineCompositor};
 
+/// PID of a Wayland client, if it was readable when the client connected.
+fn client_pid(client: &smithay::reexports::wayland_server::Client) -> Option<u32> {
+	client.get_data::<ClientState>()?.pid
+}
+
 // ---------------------------------------------------------------------------
 // Process-tree app_id detection (mirrors gamescope's get_appid_from_pid)
 // ---------------------------------------------------------------------------
@@ -1633,13 +1638,7 @@ impl MoonshineCompositor {
 							// We don't have PID stored in metadata; read it from X11.
 							x11_focus.get_window_pid(window_id)
 						})
-						.or_else(|| {
-							w.wl_surface()?
-								.client()?
-								.get_credentials(&self.display_handle)
-								.ok()
-								.map(|c| c.pid as u32)
-						})
+						.or_else(|| client_pid(&w.wl_surface()?.client()?))
 						.unwrap_or(0);
 					Some([window_id, app_id, pid])
 				})
@@ -1816,15 +1815,12 @@ impl XdgShellHandler for MoonshineCompositor {
 		surface.send_configure();
 
 		// Resolve app_id from Wayland client PID (matches gamescope: wlserver.cpp:1870)
-		let app_id = if let Some(client) = surface.wl_surface().client() {
-			if let Ok(creds) = client.get_credentials(&self.display_handle) {
-				get_appid_from_pid(creds.pid as u32)
-			} else {
-				0
-			}
-		} else {
-			0
-		};
+		let app_id = surface
+			.wl_surface()
+			.client()
+			.and_then(|client| client_pid(&client))
+			.map(get_appid_from_pid)
+			.unwrap_or(0);
 
 		// Read fullscreen state before surface is consumed by new_wayland_window.
 		let fullscreen = surface.with_committed_state(|state| {
@@ -1922,9 +1918,9 @@ impl XdgShellHandler for MoonshineCompositor {
 		if let Some(window) = self.find_window_by_surface(target)
 			&& let Some(meta) = self.window_metadata.get_mut(&window)
 			&& let Some(client) = surface.wl_surface().client()
-			&& let Ok(creds) = client.get_credentials(&self.display_handle)
+			&& let Some(pid) = client_pid(&client)
 		{
-			meta.app_id = get_appid_from_pid(creds.pid as u32);
+			meta.app_id = get_appid_from_pid(pid);
 		}
 		self.reevaluate_focus();
 	}

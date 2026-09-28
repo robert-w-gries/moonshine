@@ -442,7 +442,7 @@ fn resolve_executable(executable: &str) -> Option<PathBuf> {
 	None
 }
 
-pub(super) fn expand_path(path: &Path) -> Option<PathBuf> {
+fn expand_path(path: &Path) -> Option<PathBuf> {
 	let path = path.to_string_lossy();
 	let path = shellexpand::full(&path).ok()?;
 	Some(PathBuf::from(path.as_ref()))
