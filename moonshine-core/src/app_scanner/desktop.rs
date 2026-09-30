@@ -52,7 +52,7 @@ pub struct DesktopApplicationScannerConfig {
 	pub launch_timeout_secs: u64,
 }
 
-const SUPPORTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "bmp", "ico"];
+pub(super) const SUPPORTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "bmp", "ico"];
 const SKIPPED_EXEC_FIELD_CODES: [char; 10] = ['f', 'F', 'u', 'U', 'd', 'D', 'n', 'N', 'v', 'm'];
 
 pub(crate) fn scan_desktop_applications(
