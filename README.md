@@ -116,9 +116,11 @@ The following dependencies are required to build and run:
 ```sh
 # Build dependencies
 sudo pacman -S --asdeps \
+   base-devel \
    clang \
    cmake \
    libc++ \
+   pkgconf \
    rust
 
 # Runtime dependencies
